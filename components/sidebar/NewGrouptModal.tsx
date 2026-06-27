@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { doc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore'
+import { doc, setDoc, collection } from 'firebase/firestore'
 import { db } from '@/lib/firebase/config'
 import { useAuth } from '@/context/AuthProvider'
 import { generateInviteCode, now } from '@/lib/utils/helper'
@@ -19,9 +19,8 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Close on Escape
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
@@ -41,8 +40,11 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
     setError('')
 
     try {
-      const chatId = doc(db, 'chats', '_').id // generate random ID
+      // Generate a proper random doc ID
+      const chatRef = doc(collection(db, 'chats'))
+      const chatId = chatRef.id
       const inviteCode = generateInviteCode()
+
       const newChat: Chat = {
         id: chatId,
         type: 'group',
@@ -58,9 +60,9 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
         photoURL: null,
       }
 
-      await setDoc(doc(db, 'chats', chatId), newChat)
+      await setDoc(chatRef, newChat)
 
-      // Store invite
+      // Store invite link
       await setDoc(doc(db, 'invites', inviteCode), {
         code: inviteCode,
         chatId,
@@ -71,7 +73,8 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
 
       onClose()
       router.push(`/chat/${chatId}`)
-    } catch {
+    } catch (err) {
+      console.error('Create group error:', err)
       setError('Failed to create group. Please try again.')
       setLoading(false)
     }
@@ -119,12 +122,12 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
             <button
               onClick={onClose}
               aria-label='Close'
-              className='icon-btn p-1'
               style={{
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
                 color: 'var(--color-text-muted)',
+                padding: '4px',
               }}
             >
               <CloseIcon />
@@ -146,7 +149,7 @@ export default function NewGroupModal({ onClose }: NewGroupModalProps) {
               <InfoIcon />
               <p style={{ lineHeight: 1.5 }}>
                 Groups are <strong>private</strong>. Others can join via invite
-                link or by searching the exact name.
+                or by searching the exact name.
               </p>
             </div>
 

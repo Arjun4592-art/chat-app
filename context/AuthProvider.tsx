@@ -14,6 +14,10 @@ import { auth } from '@/lib/firebase/config'
 import { userDoc } from '@/lib/firebase/refs'
 import { now } from '@/lib/utils/helper'
 import { GUEST_INACTIVITY_MS, GUEST_DELETE_DELAY_MS } from '@/types'
+import {
+  checkAndDeleteExpiredGuest,
+  cleanupAllExpiredGuests,
+} from '@/lib/utils/cleanupGuest'
 import type { User } from '@/types'
 
 interface AuthContextValue {
@@ -57,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await updateDoc(userDoc(user.uid), { online: false, lastSeen: now() })
       }
     } catch (e) {
-      console.error('logout update error:', e)
+      console.warn('logout update error:', e)
     }
     clearInactivityTimer()
     await signOut(auth)
@@ -97,8 +101,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Auth state listener ─────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Cleanup all expired guests on app start
+    cleanupAllExpiredGuests().catch(() => {})
+
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      // cleanup previous listener
       unsubUserDoc.current?.()
       unsubUserDoc.current = null
 
@@ -111,14 +117,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setFbUid(fbUser.uid)
 
-      // Realtime listener on user doc
+      // ── Guest expiry check ─────────────────────────────────────────────────
+      // 30-min window check — agar nikal gaya toh data delete + sign out
+      const wasDeleted = await checkAndDeleteExpiredGuest(fbUser.uid)
+      if (wasDeleted) {
+        await signOut(auth)
+        setUser(null)
+        setFbUid(null)
+        setLoading(false)
+        return
+      }
+
+      // ── Normal flow ────────────────────────────────────────────────────────
       unsubUserDoc.current = onSnapshot(
         userDoc(fbUser.uid),
         (snap) => {
           if (snap.exists()) {
             setUser(snap.data() as User)
           } else {
-            // Doc nahi mila — guest ka doc abhi save ho raha hoga, thoda wait
             setUser(null)
           }
           setLoading(false)
@@ -130,11 +146,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       )
 
       // Mark online
-      try {
-        await updateDoc(userDoc(fbUser.uid), { online: true, lastSeen: now() })
-      } catch {
-        // Doc abhi exist nahi karta — GuestInfoModal save kar raha hoga
-      }
+      updateDoc(userDoc(fbUser.uid), { online: true, lastSeen: now() }).catch(
+        () => {},
+      )
     })
 
     return () => {

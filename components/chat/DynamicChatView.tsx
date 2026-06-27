@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthProvider'
 import { useChat } from '@/lib/hooks/useChat'
 import ChatTopbar from '@/components/chat/ChatTopbar'
 import ChatWindow from '@/components/chat/ChatWindow'
-import GroupInfoPanel from '@/components/chat/GlobalInfoPanel'
+import GroupInfoPanel from '@/components/chat/GroupInfoPanel'
 import { useState } from 'react'
 
 interface DynamicChatViewProps {

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/context/AuthProvider'
 import { getInitials, formatLastSeen } from '@/lib/utils/helper'
+import InviteMembersModal from '@/components/chat/InviteMemberModal'
 import type { Chat, User } from '@/types'
 
 interface ChatTopbarProps {
@@ -17,6 +18,7 @@ export default function ChatTopbar({
   onInfoOpen,
 }: ChatTopbarProps) {
   const { user } = useAuth()
+  const [showInvite, setShowInvite] = useState(false)
 
   if (!chat) return null
 
@@ -31,10 +33,9 @@ export default function ChatTopbar({
       : (chat.name ?? 'Group')
 
   const avatarColor = isDM ? (otherUser?.avatarColor ?? 'purple') : 'purple'
-  const initials = isGlobal ? null : isDM ? getInitials(name) : null
 
   const subtitle = isGlobal
-    ? 'Everyone can chat here'
+    ? 'Public room — messages auto-delete after 30 min'
     : isDM
       ? otherUser?.online
         ? 'Online'
@@ -42,150 +43,127 @@ export default function ChatTopbar({
       : `${chat.members.length} member${chat.members.length !== 1 ? 's' : ''}`
 
   return (
-    <header
-      className='flex items-center gap-3 px-4 flex-shrink-0'
-      style={{
-        height: 'var(--topbar-height)',
-        borderBottom: '1px solid var(--color-border)',
-        background: 'var(--color-bg)',
-      }}
-    >
-      {/* Avatar */}
-      <div
-        className={`avatar-${avatarColor} flex items-center justify-center font-semibold flex-shrink-0 relative`}
+    <>
+      <header
+        className='flex items-center gap-3 px-4 flex-shrink-0'
         style={{
-          width: 'var(--avatar-md)',
-          height: 'var(--avatar-md)',
-          borderRadius: 'var(--radius-md)',
-          fontSize: '13px',
+          height: 'var(--topbar-height)',
+          borderBottom: '1px solid var(--color-border)',
+          background: 'var(--color-bg)',
         }}
       >
-        {isGlobal ? (
-          <GlobalIcon />
-        ) : isDM && otherUser?.photoURL ? (
-          <img
-            src={otherUser.photoURL}
-            alt={name}
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: 'var(--radius-md)',
-              objectFit: 'cover',
-            }}
-          />
-        ) : isGroup ? (
-          <GroupIcon />
-        ) : (
-          initials
-        )}
-
-        {/* Online dot for DM */}
-        {isDM && (
-          <span
-            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${otherUser?.online ? 'status-online' : 'status-offline'}`}
-            aria-hidden='true'
-          />
-        )}
-      </div>
-
-      {/* Info */}
-      <div className='flex-1 min-w-0'>
-        <p
-          className='font-heading font-semibold text-sm truncate'
-          style={{ color: 'var(--color-text-primary)' }}
-        >
-          {name}
-        </p>
-        <p
-          className='text-xs truncate flex items-center gap-1'
+        {/* Avatar */}
+        <div
+          className={`avatar-${avatarColor} flex items-center justify-center font-semibold flex-shrink-0 relative`}
           style={{
-            color:
-              isDM && otherUser?.online
-                ? 'var(--color-online)'
-                : 'var(--color-text-muted)',
+            width: 'var(--avatar-md)',
+            height: 'var(--avatar-md)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '13px',
           }}
         >
-          {isDM && otherUser?.online && (
+          {isGlobal ? (
+            <GlobalIcon />
+          ) : isDM && otherUser?.photoURL ? (
+            <img
+              src={otherUser.photoURL}
+              alt={name}
+              style={{
+                width: '100%',
+                height: '100%',
+                borderRadius: 'var(--radius-md)',
+                objectFit: 'cover',
+              }}
+            />
+          ) : isGroup ? (
+            <GroupIcon />
+          ) : (
+            getInitials(name)
+          )}
+
+          {isDM && (
             <span
-              className='w-1.5 h-1.5 rounded-full status-online inline-block'
+              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${otherUser?.online ? 'status-online' : 'status-offline'}`}
               aria-hidden='true'
             />
           )}
-          {subtitle}
-        </p>
-      </div>
+        </div>
 
-      {/* Actions */}
-      <div className='flex items-center gap-1 flex-shrink-0'>
-        {isGroup && (
-          <button
-            onClick={onInfoOpen}
-            className='icon-btn p-2 transition-colors'
-            aria-label='Group info'
+        {/* Info */}
+        <div className='flex-1 min-w-0'>
+          <p
+            className='font-heading font-semibold text-sm truncate'
+            style={{ color: 'var(--color-text-primary)' }}
+          >
+            {name}
+          </p>
+          <p
+            className='text-xs truncate flex items-center gap-1'
             style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-muted)',
-              borderRadius: 'var(--radius-md)',
+              color:
+                isDM && otherUser?.online
+                  ? 'var(--color-online)'
+                  : 'var(--color-text-muted)',
             }}
           >
-            <InfoIcon />
-          </button>
-        )}
-        {isGroup && user?.uid === chat.createdBy && (
-          <InviteLinkButton
-            inviteCode={chat.inviteCode}
-            groupName={chat.name ?? 'Group'}
-          />
-        )}
-      </div>
-    </header>
+            {isDM && otherUser?.online && (
+              <span
+                className='w-1.5 h-1.5 rounded-full status-online inline-block'
+                aria-hidden='true'
+              />
+            )}
+            {subtitle}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className='flex items-center gap-1 flex-shrink-0'>
+          {isGroup && (
+            <>
+              <button
+                onClick={onInfoOpen}
+                className='icon-btn p-2 transition-colors'
+                aria-label='Group info'
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-muted)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                <InfoIcon />
+              </button>
+
+              {/* Invite button — opens online members modal */}
+              <button
+                onClick={() => setShowInvite(true)}
+                className='icon-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition-all'
+                aria-label='Invite members'
+                style={{
+                  background: 'var(--color-primary-light)',
+                  border: '1px solid var(--color-primary-muted)',
+                  color: 'var(--color-primary)',
+                  borderRadius: 'var(--radius-md)',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body)',
+                }}
+              >
+                <InviteIcon />
+                Invite
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* Invite modal */}
+      {showInvite && chat && (
+        <InviteMembersModal chat={chat} onClose={() => setShowInvite(false)} />
+      )}
+    </>
   )
 }
-
-// ── Invite link copy button ───────────────────────────────────────────────────
-
-function InviteLinkButton({
-  inviteCode,
-  groupName,
-}: {
-  inviteCode: string | null
-  groupName: string
-}) {
-  const [copied, setCopied] = useState(false)
-
-  async function copyLink() {
-    if (!inviteCode) return
-    const url = `${window.location.origin}/join/${inviteCode}`
-    await navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <button
-      onClick={copyLink}
-      className='icon-btn flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 transition-all'
-      aria-label='Copy invite link'
-      style={{
-        background: copied
-          ? 'var(--color-success-bg)'
-          : 'var(--color-primary-light)',
-        border: `1px solid ${copied ? 'var(--color-success)' : 'var(--color-primary-muted)'}`,
-        color: copied ? 'var(--color-success)' : 'var(--color-primary)',
-        borderRadius: 'var(--radius-md)',
-        cursor: 'pointer',
-        fontFamily: 'var(--font-body)',
-      }}
-    >
-      {copied ? <CheckIcon /> : <LinkIcon />}
-      {copied ? 'Copied!' : 'Invite'}
-    </button>
-  )
-}
-
-// ── Icons ─────────────────────────────────────────────────────────────────────
 
 function GlobalIcon() {
   return (
@@ -264,7 +242,7 @@ function InfoIcon() {
   )
 }
 
-function LinkIcon() {
+function InviteIcon() {
   return (
     <svg
       width='14'
@@ -273,38 +251,34 @@ function LinkIcon() {
       fill='none'
       aria-hidden='true'
     >
-      <path
-        d='M10 13C10.83 14.11 12.11 14.83 13.5 14.97C14.89 15.11 16.28 14.65 17.31 13.73L20.31 10.73C22.19 8.78 22.15 5.67 20.22 3.78C18.29 1.89 15.18 1.93 13.29 3.86L11.75 5.39'
-        stroke='currentColor'
-        strokeWidth='2'
-        strokeLinecap='round'
-      />
-      <path
-        d='M14 11C13.17 9.89 11.89 9.17 10.5 9.03C9.11 8.89 7.72 9.35 6.69 10.27L3.69 13.27C1.81 15.22 1.85 18.33 3.78 20.22C5.71 22.11 8.82 22.07 10.71 20.14L12.24 18.61'
-        stroke='currentColor'
-        strokeWidth='2'
-        strokeLinecap='round'
-      />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width='14'
-      height='14'
-      viewBox='0 0 24 24'
-      fill='none'
-      aria-hidden='true'
-    >
-      <path
-        d='M20 6L9 17L4 12'
-        stroke='currentColor'
-        strokeWidth='2.5'
-        strokeLinecap='round'
-        strokeLinejoin='round'
-      />
+      <g className='icon-outline'>
+        <path
+          d='M16 21V19C16 17.9 15.58 16.84 14.83 16.05C14.08 15.26 13.06 14.83 12 14.83H5C3.94 14.83 2.92 15.26 2.17 16.05C1.42 16.84 1 17.9 1 19V21'
+          stroke='currentColor'
+          strokeWidth='2'
+          strokeLinecap='round'
+        />
+        <circle cx='8.5' cy='7' r='4' stroke='currentColor' strokeWidth='2' />
+        <path
+          d='M20 8V14M17 11H23'
+          stroke='currentColor'
+          strokeWidth='2'
+          strokeLinecap='round'
+        />
+      </g>
+      <g className='icon-filled'>
+        <path
+          d='M16 21V19C16 17.9 15.58 16.84 14.83 16.05C14.08 15.26 13.06 14.83 12 14.83H5C3.94 14.83 2.92 15.26 2.17 16.05C1.42 16.84 1 17.9 1 19V21'
+          fill='currentColor'
+        />
+        <circle cx='8.5' cy='7' r='4' fill='currentColor' />
+        <path
+          d='M20 8V14M17 11H23'
+          stroke='currentColor'
+          strokeWidth='2'
+          strokeLinecap='round'
+        />
+      </g>
     </svg>
   )
 }

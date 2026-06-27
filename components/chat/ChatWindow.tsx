@@ -1,17 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import {
-  addDoc,
-  updateDoc,
-  doc,
-  serverTimestamp,
-  increment,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase/config'
+import { addDoc, updateDoc, increment } from 'firebase/firestore'
 import { useAuth } from '@/context/AuthProvider'
 import { useMessages } from '@/lib/hooks/useMessage'
 import MessageBubble from '@/components/chat/MessageBubble'
+import MediaUpload from '@/components/chat/MediaUpload'
 import { messagesCol, chatDoc } from '@/lib/firebase/refs'
 import { now, formatDate } from '@/lib/utils/helper'
 import type { Chat, Message } from '@/types'
@@ -25,68 +19,107 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
   const { messages, loading } = useMessages(chat.id)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto scroll to bottom
+  const isGlobal = chat.type === 'global'
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto resize textarea
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value)
     e.target.style.height = 'auto'
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
   }
 
-  // Send message
+  // ── Send text message ───────────────────────────────────────────────────────
+
   const sendMessage = useCallback(async () => {
     if (!user || !text.trim() || sending) return
     const trimmed = text.trim()
     setText('')
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto'
-    }
+    if (inputRef.current) inputRef.current.style.height = 'auto'
     setSending(true)
 
     try {
-      const msg: Omit<Message, 'id'> = {
-        chatId: chat.id,
-        senderId: user.uid,
-        senderName: user.name,
-        senderAvatarColor: user.avatarColor,
+      await sendToFirestore({
         type: 'text',
         text: trimmed,
         fileURL: null,
         fileName: null,
-        createdAt: now(),
-        readBy: [user.uid],
-        deleted: false,
-      }
-
-      await addDoc(messagesCol(chat.id), msg)
-
-      // Update chat last message
-      await updateDoc(chatDoc(chat.id), {
-        lastMessage: trimmed,
-        lastMessageAt: now(),
-        lastMessageSenderId: user.uid,
       })
-
-      // Increment unread for all other members
-      const updates: Record<string, unknown> = {}
-      chat.members.forEach((uid) => {
-        if (uid !== user.uid) updates[`unreadCount.${uid}`] = increment(1)
-      })
-      if (Object.keys(updates).length > 0) {
-        await updateDoc(chatDoc(chat.id), updates)
-      }
     } finally {
       setSending(false)
       inputRef.current?.focus()
     }
   }, [user, text, sending, chat])
+
+  // ── Send media message ──────────────────────────────────────────────────────
+
+  async function handleUpload(result: {
+    url: string
+    name: string
+    type: 'image' | 'file'
+  }) {
+    if (!user) return
+    await sendToFirestore({
+      type: result.type,
+      text: null,
+      fileURL: result.url,
+      fileName: result.name,
+    })
+  }
+
+  // ── Core send helper ────────────────────────────────────────────────────────
+
+  async function sendToFirestore({
+    type,
+    text,
+    fileURL,
+    fileName,
+  }: {
+    type: Message['type']
+    text: string | null
+    fileURL: string | null
+    fileName: string | null
+  }) {
+    if (!user) return
+
+    const msg: Omit<Message, 'id'> = {
+      chatId: chat.id,
+      senderId: user.uid,
+      senderName: user.name,
+      senderAvatarColor: user.avatarColor,
+      type,
+      text,
+      fileURL,
+      fileName,
+      createdAt: now(),
+      readBy: [user.uid],
+      deleted: false,
+    }
+
+    await addDoc(messagesCol(chat.id), msg)
+
+    const preview = type === 'text' ? text! : `📎 ${fileName}`
+    await updateDoc(chatDoc(chat.id), {
+      lastMessage: preview,
+      lastMessageAt: now(),
+      lastMessageSenderId: user.uid,
+    })
+
+    // Increment unread for other members
+    const updates: Record<string, unknown> = {}
+    chat.members.forEach((uid) => {
+      if (uid !== user.uid) updates[`unreadCount.${uid}`] = increment(1)
+    })
+    if (Object.keys(updates).length > 0) {
+      await updateDoc(chatDoc(chat.id), updates)
+    }
+  }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -95,7 +128,6 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     }
   }
 
-  // Group messages by date + determine avatar/name visibility
   const grouped = groupMessages(messages, user?.uid ?? '')
 
   return (
@@ -130,7 +162,35 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
+      {/* Error toast */}
+      {error && (
+        <div
+          className='mx-4 mb-2 px-3 py-2 text-xs'
+          style={{
+            background: 'var(--color-error-bg)',
+            color: 'var(--color-error)',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid #fca5a5',
+          }}
+        >
+          {error}
+          <button
+            onClick={() => setError('')}
+            style={{
+              marginLeft: '8px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-error)',
+              fontWeight: 600,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Input area */}
       <div
         className='flex-shrink-0 px-4 py-3 flex items-end gap-2'
         style={{
@@ -138,12 +198,27 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
           background: 'var(--color-bg)',
         }}
       >
+        {/* Media upload — only for DM and Group */}
+        {!isGlobal && (
+          <MediaUpload
+            chatId={chat.id}
+            onUpload={handleUpload}
+            onError={(msg) => setError(msg)}
+          />
+        )}
+
         <textarea
           ref={inputRef}
           value={text}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder={`Message ${chat.type === 'global' ? 'Global Room' : chat.type === 'dm' ? '…' : (chat.name ?? 'group')}`}
+          placeholder={
+            isGlobal
+              ? 'Message Global Room…'
+              : chat.type === 'dm'
+                ? 'Message…'
+                : `Message ${chat.name ?? 'group'}…`
+          }
           rows={1}
           className='flex-1 resize-none outline-none text-sm py-2.5 px-4'
           style={{
@@ -165,8 +240,8 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
           aria-label='Send message'
           className='icon-btn flex-shrink-0 flex items-center justify-center transition-all active:scale-95'
           style={{
-            width: '38px',
-            height: '38px',
+            width: '36px',
+            height: '36px',
             background: text.trim()
               ? 'var(--color-primary)'
               : 'var(--color-surface)',
@@ -174,7 +249,6 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
             borderRadius: 'var(--radius-lg)',
             cursor: text.trim() ? 'pointer' : 'not-allowed',
             color: text.trim() ? 'white' : 'var(--color-text-muted)',
-            flexShrink: 0,
           }}
         >
           <SendIcon />
@@ -199,22 +273,18 @@ type GroupedItem =
 function groupMessages(messages: Message[], uid: string): GroupedItem[] {
   const result: GroupedItem[] = []
   let lastDate = ''
-  let lastSender = ''
-  let lastTime = 0
 
   messages.forEach((msg, i) => {
     const date = formatDate(msg.createdAt)
     if (date !== lastDate) {
       result.push({ type: 'date', date })
       lastDate = date
-      lastSender = ''
     }
 
     const isOwn = msg.senderId === uid
     const next = messages[i + 1]
     const sameNextSender = next?.senderId === msg.senderId
     const timeDiff = next ? next.createdAt - msg.createdAt : Infinity
-
     const showAvatar = !isOwn && (!sameNextSender || timeDiff > 2 * 60 * 1000)
     const showTimestamp = !sameNextSender || timeDiff > 2 * 60 * 1000
 
@@ -225,9 +295,6 @@ function groupMessages(messages: Message[], uid: string): GroupedItem[] {
       showAvatar,
       showTimestamp,
     })
-
-    lastSender = msg.senderId
-    lastTime = msg.createdAt
   })
 
   return result
@@ -237,10 +304,7 @@ function groupMessages(messages: Message[], uid: string): GroupedItem[] {
 
 function DateDivider({ date }: { date: string }) {
   return (
-    <div
-      className='flex items-center gap-3 my-4'
-      aria-label={`Messages from ${date}`}
-    >
+    <div className='flex items-center gap-3 my-4'>
       <div
         className='flex-1 h-px'
         style={{ background: 'var(--color-border)' }}
@@ -280,7 +344,21 @@ function EmptyState({
           borderRadius: 'var(--radius-xl)',
         }}
       >
-        <EmptyChatIcon />
+        <svg
+          width='28'
+          height='28'
+          viewBox='0 0 24 24'
+          fill='none'
+          aria-hidden='true'
+        >
+          <path
+            d='M21 15C21 15.53 20.79 16.04 20.41 16.41C20.04 16.79 19.53 17 19 17H7L3 21V5C3 4.47 3.21 3.96 3.59 3.59C3.96 3.21 4.47 3 5 3H19C19.53 3 20.04 3.21 20.41 3.59C20.79 3.96 21 4.47 21 5V15Z'
+            stroke='var(--color-primary)'
+            strokeWidth='2'
+            strokeLinecap='round'
+            strokeLinejoin='round'
+          />
+        </svg>
       </div>
       <p
         className='font-heading font-semibold text-base'
@@ -299,7 +377,7 @@ function EmptyState({
         {chatType === 'global'
           ? 'This is the beginning of the global conversation.'
           : chatType === 'group'
-            ? 'This is the beginning of the group. Say hello!'
+            ? 'Say hello to the group!'
             : 'Send a message to start chatting.'}
       </p>
     </div>
@@ -332,8 +410,6 @@ function MessagesSkeleton() {
   )
 }
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
-
 function SendIcon() {
   return (
     <svg
@@ -362,26 +438,6 @@ function SendIcon() {
       <g className='icon-filled'>
         <path d='M22 2L15 22L11 13L2 9L22 2Z' fill='currentColor' />
       </g>
-    </svg>
-  )
-}
-
-function EmptyChatIcon() {
-  return (
-    <svg
-      width='28'
-      height='28'
-      viewBox='0 0 24 24'
-      fill='none'
-      aria-hidden='true'
-    >
-      <path
-        d='M21 15C21 15.53 20.79 16.04 20.41 16.41C20.04 16.79 19.53 17 19 17H7L3 21V5C3 4.47 3.21 3.96 3.59 3.59C3.96 3.21 4.47 3 5 3H19C19.53 3 20.04 3.21 20.41 3.59C20.79 3.96 21 4.47 21 5V15Z'
-        stroke='var(--color-primary)'
-        strokeWidth='2'
-        strokeLinecap='round'
-        strokeLinejoin='round'
-      />
     </svg>
   )
 }
