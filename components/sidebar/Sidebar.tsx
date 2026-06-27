@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthProvider'
 import { useChatList } from '@/lib/hooks/useChatList'
 import { GLOBAL_CHAT_ID } from '@/lib/firebase/refs'
 import { getInitials, truncate, formatTime } from '@/lib/utils/helper'
-import NewGroupModal from '@/components/sidebar/NewGroupModal'
+import NewGroupModal from '@/components/sidebar/NewGrouptModal'
 import UserMenu from '@/components/sidebar/UserMenu'
 import type { ChatPreview } from '@/types'
 

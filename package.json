@@ -2,6 +2,7 @@
   "name": "chatting",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,20 +10,21 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "15.3.3",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "dotenv": "^17.4.2",
     "firebase": "^11.0.0",
-    "firebase-admin": "^13.0.0",
-    "nodemailer": "^6.9.0"
+    "firebase-admin": "^13.10.0",
+    "next": "15.3.3",
+    "nodemailer": "^6.9.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "^6.4.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/nodemailer": "^6.4.0",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }

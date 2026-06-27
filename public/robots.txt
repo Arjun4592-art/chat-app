@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /auth/login
+Allow: /auth/signup
+Disallow: /chat
+Disallow: /chat/
+Disallow: /api/
+Disallow: /join/
+Disallow: /search
+
+Sitemap: https://your-domain.com/sitemap.xml

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthProvider'
 import Sidebar from '@/components/sidebar/Sidebar'
@@ -14,18 +14,35 @@ export default function ChatShell({ children }: ChatShellProps) {
   const router = useRouter()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
-  // Auth guard
+  // Auth guard — extra 1s grace period for guest doc to save
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
-    if (!loading && !user) router.replace('/auth/login')
+    if (loading) return
+
+    if (!user) {
+      // Give 1 second grace — guest doc might still be saving to Firestore
+      redirectTimer.current = setTimeout(() => {
+        router.replace('/auth/login')
+      }, 1000)
+    } else {
+      // User exists — clear any pending redirect
+      if (redirectTimer.current) clearTimeout(redirectTimer.current)
+    }
+
+    return () => {
+      if (redirectTimer.current) clearTimeout(redirectTimer.current)
+    }
   }, [user, loading, router])
 
-  // Close sidebar on route change (mobile)
   useEffect(() => {
     setMobileSidebarOpen(false)
   }, [])
 
   if (loading) return <FullScreenLoader />
-  if (!user) return null
+
+  // Still waiting for user doc (guest case)
+  if (!user) return <FullScreenLoader />
 
   return (
     <div

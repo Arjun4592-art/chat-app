@@ -9,7 +9,7 @@ import {
   useRef,
 } from 'react'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { onSnapshot } from 'firebase/firestore'
+import { onSnapshot, updateDoc } from 'firebase/firestore'
 import { auth } from '@/lib/firebase/config'
 import { userDoc } from '@/lib/firebase/refs'
 import { now } from '@/lib/utils/helper'
@@ -37,35 +37,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const unsubUserDoc = useRef<(() => void) | null>(null)
 
-  // ── Logout ──────────────────────────────────────────────────────────────────
+  // ── Logout ─────────────────────────────────────────────────────────────────
 
   const logout = useCallback(async () => {
-    if (user?.type === 'guest') {
-      // Store logout time for 30-min deletion window
-      const { updateDoc } = await import('firebase/firestore')
-      const { db } = await import('@/lib/firebase/config')
-      const deleteAt = now() + GUEST_DELETE_DELAY_MS
-      await updateDoc(userDoc(user.uid), {
-        online: false,
-        logoutAt: now(),
-        deleteAt,
-      })
-      // Schedule cleanup via API
-      fetch('/api/guest/schedule-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uid: user.uid, deleteAt }),
-      }).catch(() => {})
-    } else if (user) {
-      const { updateDoc } = await import('firebase/firestore')
-      const { db } = await import('@/lib/firebase/config')
-      await updateDoc(userDoc(user.uid), { online: false, lastSeen: now() })
+    try {
+      if (user?.type === 'guest') {
+        const deleteAt = now() + GUEST_DELETE_DELAY_MS
+        await updateDoc(userDoc(user.uid), {
+          online: false,
+          logoutAt: now(),
+          deleteAt,
+        })
+        fetch('/api/guest/schedule-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: user.uid, deleteAt }),
+        }).catch(() => {})
+      } else if (user) {
+        await updateDoc(userDoc(user.uid), { online: false, lastSeen: now() })
+      }
+    } catch (e) {
+      console.error('logout update error:', e)
     }
     clearInactivityTimer()
     await signOut(auth)
   }, [user])
 
-  // ── Guest inactivity timer ──────────────────────────────────────────────────
+  // ── Guest inactivity ────────────────────────────────────────────────────────
 
   function clearInactivityTimer() {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
@@ -74,12 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetInactivityTimer = useCallback(() => {
     if (!user || user.type !== 'guest') return
     clearInactivityTimer()
-    inactivityTimer.current = setTimeout(() => {
-      logout()
-    }, GUEST_INACTIVITY_MS)
+    inactivityTimer.current = setTimeout(() => logout(), GUEST_INACTIVITY_MS)
   }, [user, logout])
 
-  // Bind activity events for guests
   useEffect(() => {
     if (!user || user.type !== 'guest') return
     const events = [
@@ -92,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     events.forEach((e) =>
       window.addEventListener(e, resetInactivityTimer, { passive: true }),
     )
-    resetInactivityTimer() // start timer immediately
+    resetInactivityTimer()
     return () => {
       events.forEach((e) => window.removeEventListener(e, resetInactivityTimer))
       clearInactivityTimer()
@@ -103,8 +98,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
-      // Cleanup previous user doc listener
+      // cleanup previous listener
       unsubUserDoc.current?.()
+      unsubUserDoc.current = null
 
       if (!fbUser) {
         setUser(null)
@@ -116,18 +112,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFbUid(fbUser.uid)
 
       // Realtime listener on user doc
-      unsubUserDoc.current = onSnapshot(userDoc(fbUser.uid), (snap) => {
-        if (snap.exists()) {
-          setUser(snap.data() as User)
-        }
-        setLoading(false)
-      })
+      unsubUserDoc.current = onSnapshot(
+        userDoc(fbUser.uid),
+        (snap) => {
+          if (snap.exists()) {
+            setUser(snap.data() as User)
+          } else {
+            // Doc nahi mila — guest ka doc abhi save ho raha hoga, thoda wait
+            setUser(null)
+          }
+          setLoading(false)
+        },
+        (error) => {
+          console.error('[AuthProvider] Firestore error:', error)
+          setLoading(false)
+        },
+      )
 
       // Mark online
-      const { updateDoc } = await import('firebase/firestore')
-      updateDoc(userDoc(fbUser.uid), { online: true, lastSeen: now() }).catch(
-        () => {},
-      )
+      try {
+        await updateDoc(userDoc(fbUser.uid), { online: true, lastSeen: now() })
+      } catch {
+        // Doc abhi exist nahi karta — GuestInfoModal save kar raha hoga
+      }
     })
 
     return () => {

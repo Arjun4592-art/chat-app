@@ -2,24 +2,6 @@
 
 export type UserType = 'registered' | 'guest'
 
-export interface User {
-  uid: string
-  name: string
-  email: string | null
-  photoURL: string | null
-  type: UserType
-  online: boolean
-  lastSeen: number // unix ms
-  createdAt: number
-  // Guest-specific
-  logoutAt?: number | null // timestamp when guest logged out
-  deleteAt?: number | null // logoutAt + 30min — scheduled cleanup time
-  // OTP verification
-  otpVerified: boolean
-  // Avatar color (assigned on signup)
-  avatarColor: AvatarColor
-}
-
 export type AvatarColor =
   | 'purple'
   | 'pink'
@@ -28,13 +10,35 @@ export type AvatarColor =
   | 'orange'
   | 'teal'
 
+export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say'
+
+export interface User {
+  uid: string
+  name: string
+  email: string | null
+  photoURL: string | null
+  type: UserType
+  online: boolean
+  lastSeen: number
+  createdAt: number
+  // Guest-specific
+  age?: number | null
+  gender?: Gender | null
+  logoutAt?: number | null
+  deleteAt?: number | null
+  // OTP verification
+  otpVerified: boolean
+  // Avatar color (assigned on signup)
+  avatarColor: AvatarColor
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface OtpRecord {
   email: string
-  otp: string // hashed
-  expiresAt: number // unix ms (10 min)
-  attempts: number // max 3
+  otp: string
+  expiresAt: number
+  attempts: number
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -44,18 +48,16 @@ export type ChatType = 'global' | 'dm' | 'group'
 export interface Chat {
   id: string
   type: ChatType
-  name: string | null // group name / null for dm/global
-  members: string[] // uids
-  createdBy: string | null // uid of creator
+  name: string | null
+  members: string[]
+  createdBy: string | null
   createdAt: number
   lastMessage: string | null
   lastMessageAt: number | null
   lastMessageSenderId: string | null
-  // Group-specific
   isPrivate: boolean
-  inviteCode: string | null // nanoid — for invite links
-  photoURL: string | null // group avatar
-  // Unread counts per user — stored as map
+  inviteCode: string | null
+  photoURL: string | null
   unreadCount?: Record<string, number>
 }
 
@@ -74,7 +76,7 @@ export interface Message {
   fileURL: string | null
   fileName: string | null
   createdAt: number
-  readBy: string[] // uids who have read
+  readBy: string[]
   deleted: boolean
 }
 
@@ -85,19 +87,19 @@ export interface InviteLink {
   chatId: string
   createdBy: string
   createdAt: number
-  expiresAt: number | null // null = never
+  expiresAt: number | null
 }
 
 // ── Store / UI ────────────────────────────────────────────────────────────────
 
 export interface ChatPreview extends Chat {
-  otherUser?: User | null // for DM — the other person
-  unread: number // unread count for current user
+  otherUser?: User | null
+  unread: number
 }
 
 export interface MessageWithSender extends Message {
   isOwn: boolean
-  showAvatar: boolean // show avatar if first in group or sender changed
+  showAvatar: boolean
   showTimestamp: boolean
 }
 
