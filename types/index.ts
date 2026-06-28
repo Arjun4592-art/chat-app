@@ -21,14 +21,11 @@ export interface User {
   online: boolean
   lastSeen: number
   createdAt: number
-  // Guest-specific
   age?: number | null
   gender?: Gender | null
   logoutAt?: number | null
   deleteAt?: number | null
-  // OTP verification
   otpVerified: boolean
-  // Avatar color (assigned on signup)
   avatarColor: AvatarColor
 }
 
@@ -78,6 +75,7 @@ export interface Message {
   createdAt: number
   readBy: string[]
   deleted: boolean
+  edited?: boolean // ← new
 }
 
 // ── Invite ────────────────────────────────────────────────────────────────────
@@ -113,5 +111,5 @@ export interface ApiResponse<T = null> {
 
 // ── Guest session ─────────────────────────────────────────────────────────────
 
-export const GUEST_INACTIVITY_MS = 5 * 60 * 1000 // 5 minutes
-export const GUEST_DELETE_DELAY_MS = 30 * 60 * 1000 // 30 minutes after logout
+export const GUEST_INACTIVITY_MS = 5 * 60 * 1000
+export const GUEST_DELETE_DELAY_MS = 30 * 60 * 1000

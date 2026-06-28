@@ -12,7 +12,6 @@ export function useChatList(uid: string) {
   useEffect(() => {
     if (!uid) return
 
-    // All chats where current user is a member
     const q = query(
       chatsCol,
       where('members', 'array-contains', uid),
@@ -22,8 +21,8 @@ export function useChatList(uid: string) {
     const unsub = onSnapshot(q, async (snap) => {
       const previews: ChatPreview[] = await Promise.all(
         snap.docs.map(async (d) => {
-          const data = d.data() as Omit<Chat, 'id'>
-          const chat = { id: d.id, ...data } as Chat
+          const chat = { id: d.id, ...d.data() } as Chat
+          // Unread = unreadCount map value for this user, or 0
           const unread = chat.unreadCount?.[uid] ?? 0
           let otherUser: User | null = null
 
@@ -38,6 +37,14 @@ export function useChatList(uid: string) {
           return { ...chat, unread, otherUser }
         }),
       )
+
+      // Sort: global first, then by lastMessageAt
+      previews.sort((a, b) => {
+        if (a.id === GLOBAL_CHAT_ID) return -1
+        if (b.id === GLOBAL_CHAT_ID) return 1
+        return (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0)
+      })
+
       setChats(previews)
       setLoading(false)
     })

@@ -1,11 +1,19 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { addDoc, updateDoc, increment } from 'firebase/firestore'
+import {
+  addDoc,
+  updateDoc,
+  increment,
+  getDocs,
+  writeBatch,
+  query,
+  where,
+} from 'firebase/firestore'
 import { useAuth } from '@/context/AuthProvider'
 import { useMessages } from '@/lib/hooks/useMessage'
-import MessageBubble from '@/components/chat/MessageBubble'
-import MediaUpload from '@/components/chat/MediaUpload'
+import MessageBubble from './MessageBubble'
+import MediaUpload from './MediaUpload'
 import { messagesCol, chatDoc } from '@/lib/firebase/refs'
 import { now, formatDate } from '@/lib/utils/helper'
 import type { Chat, Message } from '@/types'
@@ -22,12 +30,45 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
   const [error, setError] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-
   const isGlobal = chat.type === 'global'
 
+  // Auto scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Mark messages as seen when chat is open
+  useEffect(() => {
+    if (!user || !messages.length) return
+
+    const unread = messages.filter(
+      (m) => m.senderId !== user.uid && !m.readBy.includes(user.uid),
+    )
+    if (!unread.length) return
+
+    async function markSeen() {
+      const batch = writeBatch((await import('@/lib/firebase/config')).db)
+      const { arrayUnion } = await import('firebase/firestore')
+
+      unread.forEach((m) => {
+        const ref = messagesCol(chat.id)
+        // get individual message doc ref
+        const { doc } = require('firebase/firestore')
+        const { db } = require('@/lib/firebase/config')
+        const msgRef = doc(db, 'chats', chat.id, 'messages', m.id)
+        batch.update(msgRef, { readBy: arrayUnion(user!.uid) })
+      })
+
+      await batch.commit()
+
+      // Reset unread count for this user
+      await updateDoc(chatDoc(chat.id), {
+        [`unreadCount.${user!.uid}`]: 0,
+      })
+    }
+
+    markSeen().catch(() => {})
+  }, [messages, user, chat.id])
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value)
@@ -35,7 +76,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
   }
 
-  // ── Send text message ───────────────────────────────────────────────────────
+  // ── Send text ───────────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(async () => {
     if (!user || !text.trim() || sending) return
@@ -43,7 +84,6 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     setText('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
     setSending(true)
-
     try {
       await sendToFirestore({
         type: 'text',
@@ -57,7 +97,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     }
   }, [user, text, sending, chat])
 
-  // ── Send media message ──────────────────────────────────────────────────────
+  // ── Send media ──────────────────────────────────────────────────────────────
 
   async function handleUpload(result: {
     url: string
@@ -73,7 +113,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     })
   }
 
-  // ── Core send helper ────────────────────────────────────────────────────────
+  // ── Core send ───────────────────────────────────────────────────────────────
 
   async function sendToFirestore({
     type,
@@ -104,7 +144,20 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
 
     await addDoc(messagesCol(chat.id), msg)
 
-    const preview = type === 'text' ? text! : `📎 ${fileName}`
+    const preview =
+      type === 'text'
+        ? text!
+        : type === 'image'
+          ? '📷 Image'
+          : fileName?.endsWith('.pdf')
+            ? '📄 PDF'
+            : fileName?.endsWith('.docx')
+              ? '📄 Document'
+              : fileName?.endsWith('.doc')
+                ? '📄 Document'
+                : fileName?.endsWith('.txt')
+                  ? '📄 Text file'
+                  : '📎 File'
     await updateDoc(chatDoc(chat.id), {
       lastMessage: preview,
       lastMessageAt: now(),
@@ -155,6 +208,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
                 showAvatar={item.showAvatar}
                 showTimestamp={item.showTimestamp}
                 showSenderName={chat.type !== 'dm' && !item.isOwn}
+                chatMembers={chat.members}
               />
             ),
           )
@@ -165,7 +219,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
       {/* Error toast */}
       {error && (
         <div
-          className='mx-4 mb-2 px-3 py-2 text-xs'
+          className='mx-4 mb-2 px-3 py-2 text-xs flex items-center justify-between'
           style={{
             background: 'var(--color-error-bg)',
             color: 'var(--color-error)',
@@ -177,12 +231,12 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
           <button
             onClick={() => setError('')}
             style={{
-              marginLeft: '8px',
               background: 'none',
               border: 'none',
               cursor: 'pointer',
               color: 'var(--color-error)',
               fontWeight: 600,
+              marginLeft: '8px',
             }}
           >
             ✕
@@ -190,7 +244,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
         </div>
       )}
 
-      {/* Input area */}
+      {/* Input */}
       <div
         className='flex-shrink-0 px-4 py-3 flex items-end gap-2'
         style={{
@@ -198,7 +252,6 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
           background: 'var(--color-bg)',
         }}
       >
-        {/* Media upload — only for DM and Group */}
         {!isGlobal && (
           <MediaUpload
             chatId={chat.id}
@@ -280,14 +333,12 @@ function groupMessages(messages: Message[], uid: string): GroupedItem[] {
       result.push({ type: 'date', date })
       lastDate = date
     }
-
     const isOwn = msg.senderId === uid
     const next = messages[i + 1]
     const sameNextSender = next?.senderId === msg.senderId
     const timeDiff = next ? next.createdAt - msg.createdAt : Infinity
     const showAvatar = !isOwn && (!sameNextSender || timeDiff > 2 * 60 * 1000)
     const showTimestamp = !sameNextSender || timeDiff > 2 * 60 * 1000
-
     result.push({
       type: 'message',
       message: msg,
@@ -299,8 +350,6 @@ function groupMessages(messages: Message[], uid: string): GroupedItem[] {
 
   return result
 }
-
-// ── Sub components ────────────────────────────────────────────────────────────
 
 function DateDivider({ date }: { date: string }) {
   return (
