@@ -2,27 +2,30 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  setDoc,
+  doc,
+} from 'firebase/firestore'
 import { db } from '@/lib/firebase/config'
 import { useAuth } from '@/context/AuthProvider'
 import { getDmChatId, getInitials, now } from '@/lib/utils/helper'
-import { chatDoc } from '@/lib/firebase/refs'
-import { setDoc, getDoc, doc } from 'firebase/firestore'
 import type { User, Chat } from '@/types'
 
-interface GlobalInfoPanelProps {
+export default function GlobalInfoPanel({
+  chatMembers,
+}: {
   chatMembers: string[]
-}
-
-export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
+}) {
   const { user } = useAuth()
   const router = useRouter()
   const [members, setMembers] = useState<User[]>([])
   const [dmLoading, setDmLoading] = useState<string | null>(null)
 
-  // Realtime online members
   useEffect(() => {
-    if (!chatMembers.length) return
     const q = query(collection(db, 'users'), where('online', '==', true))
     const unsub = onSnapshot(q, (snap) => {
       const users = snap.docs
@@ -31,38 +34,40 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
       setMembers(users)
     })
     return () => unsub()
-  }, [chatMembers, user?.uid])
+  }, [user?.uid])
 
   async function startDM(otherUser: User) {
     if (!user) return
     setDmLoading(otherUser.uid)
     try {
       const chatId = getDmChatId(user.uid, otherUser.uid)
-      const existing = await getDoc(chatDoc(chatId))
-      if (!existing.exists()) {
-        const dm: Chat = {
-          id: chatId,
-          type: 'dm',
-          name: null,
-          members: [user.uid, otherUser.uid],
-          createdBy: user.uid,
-          createdAt: now(),
-          lastMessage: null,
-          lastMessageAt: null,
-          lastMessageSenderId: null,
-          isPrivate: true,
-          inviteCode: null,
-          photoURL: null,
-        }
-        await setDoc(doc(db, 'chats', chatId), dm)
+      const dmRef = doc(db, 'chats', chatId)
+
+      // Always setDoc with merge — avoids getDoc permission issue on non-existent doc
+      const dm: Chat = {
+        id: chatId,
+        type: 'dm',
+        name: null,
+        members: [user.uid, otherUser.uid],
+        createdBy: user.uid,
+        createdAt: now(),
+        lastMessage: null,
+        lastMessageAt: null,
+        lastMessageSenderId: null,
+        isPrivate: true,
+        inviteCode: null,
+        photoURL: null,
       }
+
+      // merge: true — agar already exist karta hai toh overwrite nahi hoga
+      await setDoc(dmRef, dm, { merge: true })
       router.push(`/chat/${chatId}`)
+    } catch (err) {
+      console.error('DM error:', err)
     } finally {
       setDmLoading(null)
     }
   }
-
-  const onlineCount = members.length
 
   return (
     <aside
@@ -75,7 +80,6 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
       }}
       aria-label='Online members'
     >
-      {/* Header */}
       <div
         className='px-4 py-3 flex-shrink-0'
         style={{ borderBottom: '1px solid var(--color-border)' }}
@@ -90,11 +94,10 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
           className='text-xs mt-0.5'
           style={{ color: 'var(--color-text-muted)' }}
         >
-          {onlineCount} {onlineCount === 1 ? 'person' : 'people'} online
+          {members.length} {members.length === 1 ? 'person' : 'people'} online
         </p>
       </div>
 
-      {/* Members list */}
       <div className='flex flex-col gap-1 p-2'>
         {members.length === 0 ? (
           <p
@@ -119,7 +122,6 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
               }}
               title={`Message ${member.name}`}
             >
-              {/* Avatar */}
               <div
                 className={`avatar-${member.avatarColor} flex items-center justify-center font-semibold relative flex-shrink-0`}
                 style={{
@@ -143,14 +145,12 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
                 ) : (
                   getInitials(member.name)
                 )}
-                {/* Online dot */}
                 <span
                   className='absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white status-online'
                   aria-hidden='true'
                 />
               </div>
 
-              {/* Name */}
               <div className='flex-1 min-w-0'>
                 <p
                   className='text-xs font-medium truncate'
@@ -168,9 +168,18 @@ export default function GlobalInfoPanel({ chatMembers }: GlobalInfoPanelProps) {
                 )}
               </div>
 
-              {/* DM icon */}
               <span style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>
-                <DMIcon />
+                {dmLoading === member.uid ? (
+                  <div
+                    className='w-3 h-3 rounded-full border-2 border-t-transparent animate-spin'
+                    style={{
+                      borderColor: 'var(--color-primary-muted)',
+                      borderTopColor: 'var(--color-primary)',
+                    }}
+                  />
+                ) : (
+                  <DMIcon />
+                )}
               </span>
             </button>
           ))

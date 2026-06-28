@@ -5,11 +5,11 @@ import {
   addDoc,
   updateDoc,
   increment,
-  getDocs,
   writeBatch,
-  query,
-  where,
+  arrayUnion,
+  doc,
 } from 'firebase/firestore'
+import { db } from '@/lib/firebase/config'
 import { useAuth } from '@/context/AuthProvider'
 import { useMessages } from '@/lib/hooks/useMessage'
 import MessageBubble from './MessageBubble'
@@ -42,33 +42,31 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
     if (!user || !messages.length) return
 
     const unread = messages.filter(
-      (m) => m.senderId !== user.uid && !m.readBy.includes(user.uid),
+      (m) =>
+        m.senderId !== user.uid && !m.readBy.includes(user.uid) && !m.deleted,
     )
     if (!unread.length) return
 
     async function markSeen() {
-      const batch = writeBatch((await import('@/lib/firebase/config')).db)
-      const { arrayUnion } = await import('firebase/firestore')
+      try {
+        const batch = writeBatch(db)
+        unread.forEach((m) => {
+          const msgRef = doc(db, 'chats', chat.id, 'messages', m.id)
+          batch.update(msgRef, { readBy: arrayUnion(user!.uid) })
+        })
+        await batch.commit()
 
-      unread.forEach((m) => {
-        const ref = messagesCol(chat.id)
-        // get individual message doc ref
-        const { doc } = require('firebase/firestore')
-        const { db } = require('@/lib/firebase/config')
-        const msgRef = doc(db, 'chats', chat.id, 'messages', m.id)
-        batch.update(msgRef, { readBy: arrayUnion(user!.uid) })
-      })
-
-      await batch.commit()
-
-      // Reset unread count for this user
-      await updateDoc(chatDoc(chat.id), {
-        [`unreadCount.${user!.uid}`]: 0,
-      })
+        // Reset unread count for this user
+        await updateDoc(chatDoc(chat.id), {
+          [`unreadCount.${user!.uid}`]: 0,
+        })
+      } catch (err) {
+        console.warn('markSeen error:', err)
+      }
     }
 
-    markSeen().catch(() => {})
-  }, [messages, user, chat.id])
+    markSeen()
+  }, [messages, user?.uid, chat.id])
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value)
@@ -158,6 +156,7 @@ export default function ChatWindow({ chat }: ChatWindowProps) {
                 : fileName?.endsWith('.txt')
                   ? '📄 Text file'
                   : '📎 File'
+
     await updateDoc(chatDoc(chat.id), {
       lastMessage: preview,
       lastMessageAt: now(),
